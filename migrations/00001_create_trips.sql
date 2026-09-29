@@ -1,3 +1,4 @@
+-- +goose Up
 CREATE TABLE trips (
     id              UUID PRIMARY KEY,
     user_id         UUID NOT NULL,
@@ -23,4 +24,5 @@ CREATE INDEX trips_status_started_at_idx ON trips (status, started_at);
 CREATE UNIQUE INDEX trips_one_active_per_driver_idx
     ON trips (driver_id) WHERE status = 'active';
 
+-- +goose Down
 DROP TABLE trips;
