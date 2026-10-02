@@ -1,45 +1,54 @@
-# TripGo — репозиторий для лабораторных работ
+# TripGo
 
-Заготовка курса «Разработка микросервисов на Go». Здесь вы делаете все пять
-работ: каждая следующая продолжает предыдущую, переписывать сервис с нуля не
-нужно.
+Лабораторная работа 1. Сервис пока в разработке.
 
-## Что делать сразу
+Сейчас реализованы конфигурация из переменных окружения, HTTP-сервер на chi, `/health`, `/ready`, подключение к PostgreSQL через pgxpool и миграции. Типы и серверные интерфейсы сгенерированы из OpenAPI.
 
-1. **Fork** этого репозитория к себе. Форк нужен, чтобы преподаватели видели
-   список всех работ курса одной страницей.
-2. Заведите модуль:
+Ручки создания, получения и завершения поездки, репозитории и менеджер транзакций пока не реализованы.
+
+## Запуск
+
+Нужны Go 1.26+, Docker, tripgoctl и make. Из корня проекта:
 
 ```bash
-git clone git@github.com:<ваш-логин>/<ваш-репозиторий>.git
-cd <ваш-репозиторий>
-go mod init github.com/<ваш-логин>/<ваш-репозиторий>
+tripgoctl cluster start
+tripgoctl environment start
+make migrate
+make run
 ```
 
-Путь модуля потом не меняется — иначе придётся править все импорты. Проще всего
-взять адрес своего репозитория, каким бы он ни был.
+В другом терминале проверить сервер:
 
-Дальше — [`homework/docs/getting-started.md`](https://github.com/course-go-autumn-2026/course/blob/main/homework/docs/getting-started.md)
-в репозитории курса: инструменты, окружение, миграции, вид сданной работы.
+```bash
+curl -i http://localhost:8080/health
+curl -i http://localhost:8080/ready
+```
 
-## Где что лежит
+`tripgoctl environment start` создаёт `.env` с адресом PostgreSQL. Файл `.env` не добавляется в Git. `make run` читает настройки из `.env.example` и `.env`.
 
-| Что | Где |
-|---|---|
-| Задания, документация, контракты | [`course-go-autumn-2026/course`](https://github.com/course-go-autumn-2026/course) |
-| Слайды и записи лекций | [`lections/`](https://github.com/course-go-autumn-2026/course/tree/main/lections) |
-| Как оценивают, дедлайны, порядок сдачи | [`homework/docs/grading.md`](https://github.com/course-go-autumn-2026/course/blob/main/homework/docs/grading.md) |
-| Локальное окружение и утилита `tripgoctl` | [`course-go-autumn-2026/course-infra`](https://github.com/course-go-autumn-2026/course-infra) |
+## Конфигурация
 
-Задания появляются по мере курса, каждое — после своей пары лекций.
+Настройки сервера: `HTTP_ADDR`, `HTTP_READ_TIMEOUT`, `HTTP_READ_HEADER_TIMEOUT`, `HTTP_WRITE_TIMEOUT`, `HTTP_IDLE_TIMEOUT`, `LOG_LEVEL`, `SHUTDOWN_TIMEOUT`.
 
-## Как сдавать
+Настройки базы: `DATABASE_URL`, `DATABASE_MAX_CONNS`, `DATABASE_MIN_CONNS`, `DATABASE_MAX_CONN_LIFETIME`, `DATABASE_CONNECT_TIMEOUT`, `DATABASE_QUERY_TIMEOUT`.
 
-Ветка `homework/NN` от `main`, pull request в `main` своего форка, ссылка
-ментору до дедлайна. Подробно — в `grading.md` репозитория курса.
+Пример значений находится в `.env.example`. Настоящее значение `DATABASE_URL` берётся из `.env`, созданного tripgoctl.
 
-## Чужие работы
+## Команды
 
-Форки видны всем, включая ваши. Смотреть чужие решения, пока идёт курс, —
-плохая идея: одинаковый код виден сразу, а разбираться на защите придётся
-самому.
+```bash
+make generate
+make test
+make lint
+make migrate
+make migrate-down
+make run
+```
+
+`make generate` обновляет `internal/generated/api.gen.go` по OpenAPI-контракту. `make migrate-down` откатывает одну миграцию за запуск.
+
+## Решения
+
+Уникальный индекс в миграции запрещает одному водителю иметь две активные поездки одновременно.
+
+Выбор уровня изоляции и устройство менеджера транзакций будут описаны после их реализации.
