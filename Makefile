@@ -1,7 +1,7 @@
 .PHONY: generate migrate migrate-down run test lint
 
 generate:
-	CGO_ENABLED=0 go tool oapi-codegen -generate types,chi-server -package api -o internal/generated/api.gen.go contracts/openapi/trip-service.openapi.yaml
+	CGO_ENABLED=0 go tool oapi-codegen -generate types,chi-server -include-operation-ids createTrip,getTrip,finishTrip,health,ready -package api -o internal/generated/api.gen.go contracts/openapi/trip-service.openapi.yaml
 
 migrate:
 	@set -a; . ./.env; set +a; CGO_ENABLED=0 go tool goose -dir migrations postgres "$$DATABASE_URL" up
