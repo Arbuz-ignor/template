@@ -12,6 +12,7 @@ import (
 	"github.com/Arbuz-ignor/template/internal/config"
 	"github.com/Arbuz-ignor/template/internal/database"
 	"github.com/Arbuz-ignor/template/internal/httpserver"
+	"github.com/Arbuz-ignor/template/internal/trips"
 )
 
 func main() {
@@ -36,10 +37,13 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
+	repo := trips.NewRepository(pool, cfg.DatabaseQueryTime)
+	txManager := database.NewTxManager(pool, cfg.DatabaseQueryTime)
+	service := trips.NewService(repo, txManager)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpserver.Router(pool, cfg.DatabaseQueryTime),
+		Handler:           httpserver.Router(pool, service, cfg.DatabaseQueryTime),
 		ReadTimeout:       cfg.HTTPReadTimeout,
 		ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout,
 		WriteTimeout:      cfg.HTTPWriteTimeout,

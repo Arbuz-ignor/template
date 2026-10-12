@@ -14,7 +14,7 @@ type fakeDB struct{ err error }
 func (f fakeDB) Ping(context.Context) error { return f.err }
 
 func TestHealthIsLiveWhenDatabaseIsUnavailable(t *testing.T) {
-	router := Router(fakeDB{err: errors.New("database unavailable")}, time.Second)
+	router := Router(fakeDB{err: errors.New("database unavailable")}, nil, time.Second)
 	for _, tc := range []struct {
 		path string
 		code int
@@ -34,7 +34,7 @@ func TestHealthIsLiveWhenDatabaseIsUnavailable(t *testing.T) {
 
 func TestReadyWhenDatabaseResponds(t *testing.T) {
 	response := httptest.NewRecorder()
-	Router(fakeDB{}, time.Second).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/ready", nil))
+	Router(fakeDB{}, nil, time.Second).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/ready", nil))
 	if response.Code != http.StatusOK || response.Body.String() != `{"status":"ok"}`+"\n" {
 		t.Fatalf("unexpected readiness response: code=%d body=%q", response.Code, response.Body.String())
 	}
