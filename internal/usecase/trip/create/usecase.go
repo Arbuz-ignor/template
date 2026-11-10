@@ -3,17 +3,25 @@ package create
 import (
 	"context"
 	"fmt"
-	"github.com/Arbuz-ignor/template/internal/domain/trip"
-	"github.com/google/uuid"
+	"log/slog"
 	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/Arbuz-ignor/template/internal/domain/trip"
 )
 
 type Usecase struct {
-	repo tripRepository
-	tx   txManager
+	logger *slog.Logger
+	events eventRecorder
+	repo   tripRepository
+	tx     txManager
 }
 
-func New(repo tripRepository, tx txManager) *Usecase { return &Usecase{repo: repo, tx: tx} }
+func New(repo tripRepository, tx txManager, logger *slog.Logger, events eventRecorder) *Usecase {
+	return &Usecase{repo: repo, tx: tx, logger: logger, events: events}
+}
+
 func (u *Usecase) Execute(ctx context.Context, input trip.Trip) (trip.Trip, error) {
 	if err := input.Validate(); err != nil {
 		return trip.Trip{}, err
@@ -24,7 +32,7 @@ func (u *Usecase) Execute(ctx context.Context, input trip.Trip) (trip.Trip, erro
 	}
 	input.ID = id
 	input.Status = trip.Active
-	input.StartedAt = time.Now().UTC()
+	input.StartedAt = time.Now().UTC().Truncate(time.Microsecond)
 	err = u.tx.Do(ctx, func(ctx context.Context) error {
 		if err := u.repo.Create(ctx, input); err != nil {
 			return err
@@ -34,5 +42,7 @@ func (u *Usecase) Execute(ctx context.Context, input trip.Trip) (trip.Trip, erro
 	if err != nil {
 		return trip.Trip{}, fmt.Errorf("create trip: %w", err)
 	}
+	u.events.Created(ctx)
+	u.logger.InfoContext(ctx, "trip created", "trip_id", input.ID.String())
 	return input, nil
 }

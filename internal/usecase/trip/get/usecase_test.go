@@ -3,11 +3,13 @@ package get_test
 import (
 	"context"
 	"errors"
-	"github.com/Arbuz-ignor/template/internal/domain/trip"
-	"github.com/Arbuz-ignor/template/internal/usecase/trip/get"
+	"testing"
+
 	"github.com/google/uuid"
 	"go.uber.org/mock/gomock"
-	"testing"
+
+	"github.com/Arbuz-ignor/template/internal/domain/trip"
+	"github.com/Arbuz-ignor/template/internal/usecase/trip/get"
 )
 
 func TestExecute(t *testing.T) {

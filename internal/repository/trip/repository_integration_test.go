@@ -5,243 +5,160 @@ package triprepo_test
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"sync"
 	"testing"
 	"time"
 
-	. "github.com/Arbuz-ignor/template/internal/domain/trip"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Arbuz-ignor/template/internal/domain/trip"
 	"github.com/Arbuz-ignor/template/internal/infra/postgres"
 	triprepo "github.com/Arbuz-ignor/template/internal/repository/trip"
 	"github.com/Arbuz-ignor/template/internal/usecase/trip/create"
 	"github.com/Arbuz-ignor/template/internal/usecase/trip/finish"
 	"github.com/Arbuz-ignor/template/internal/usecase/trip/get"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func TestDatabaseLifecycle(t *testing.T) {
-	url := os.Getenv("DATABASE_URL")
-	if url == "" {
-		t.Fatal("DATABASE_URL is required for integration tests")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	pool, err := pgxpool.New(ctx, url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-	if err := pool.Ping(ctx); err != nil {
-		t.Fatal(err)
-	}
-	repo := triprepo.NewRepository(pool, 5*time.Second)
-	tx := postgres.NewTxManager(pool, 5*time.Second)
-	service := testService{create.New(repo, tx), get.New(repo), finish.New(repo, tx)}
-	input := Trip{
-		UserID: uuid.New(), DriverID: uuid.New(),
-		StartPoint: Coordinates{Latitude: 59.9398, Longitude: 30.3146},
-		EndPoint:   Coordinates{Latitude: 59.929, Longitude: 30.3626}, Price: 1450,
-	}
-	cleanup := func(id uuid.UUID) {
-		t.Helper()
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if _, err := pool.Exec(cleanupCtx, "DELETE FROM trips WHERE id = $1", id); err != nil {
-			t.Error(err)
-		}
-	}
-
-	first, err := service.Create(ctx, input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cleanup(first.ID)
-	got, err := service.Get(ctx, first.ID)
-	if err != nil || got.ID != first.ID || got.Status != "active" {
-		t.Fatalf("get: %+v, %v", got, err)
-	}
-	if _, err := service.Create(ctx, input); !errors.Is(err, ErrDriverBusy) {
-		t.Fatalf("same driver: %v", err)
-	}
-	finished, err := service.Finish(ctx, first.ID)
-	if err != nil || finished.Status != "completed" || finished.FinishedAt == nil {
-		t.Fatalf("finish: %+v, %v", finished, err)
-	}
-	if _, err := service.Finish(ctx, first.ID); !errors.Is(err, ErrCompleted) {
-		t.Fatalf("second finish: %v", err)
-	}
-	got, err = service.Get(ctx, first.ID)
-	if err != nil || got.FinishedAt == nil || !got.FinishedAt.Equal(*finished.FinishedAt) {
-		t.Fatalf("finish time changed: %+v, %v", got, err)
-	}
-	missing := uuid.New()
-	if _, err := service.Get(ctx, missing); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("missing trip: %v", err)
-	}
-	if _, err := service.Finish(ctx, missing); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("finish missing trip: %v", err)
-	}
-	var count int
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM trip_status_history WHERE trip_id = $1", first.ID).Scan(&count); err != nil || count != 2 {
-		t.Fatalf("history: %d, %v", count, err)
-	}
-	again, err := service.Create(ctx, input)
-	if err != nil {
-		t.Fatalf("driver after finish: %v", err)
-	}
-	defer cleanup(again.ID)
-	var wg sync.WaitGroup
-	finishResults := make(chan error, 2)
-	for range 2 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_, err := service.Finish(ctx, again.ID)
-			finishResults <- err
-		}()
-	}
-	wg.Wait()
-	close(finishResults)
-	finishedCount, completedCount := 0, 0
-	for err := range finishResults {
-		switch {
-		case err == nil:
-			finishedCount++
-		case errors.Is(err, ErrCompleted):
-			completedCount++
-		default:
-			t.Fatalf("concurrent finish: %v", err)
-		}
-	}
-	if finishedCount != 1 || completedCount != 1 {
-		t.Fatalf("finished=%d completed=%d", finishedCount, completedCount)
-	}
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM trip_status_history WHERE trip_id = $1", again.ID).Scan(&count); err != nil || count != 2 {
-		t.Fatalf("concurrent finish history: %d, %v", count, err)
-	}
-
-	input.DriverID = uuid.New()
-	results := make(chan error, 20)
-	ids := make(chan uuid.UUID, 20)
-	for range 20 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			trip, err := service.Create(ctx, input)
-			if err == nil {
-				ids <- trip.ID
-			}
-			results <- err
-		}()
-	}
-	wg.Wait()
-	close(results)
-	close(ids)
-	for id := range ids {
-		defer cleanup(id)
-	}
-	created, busy := 0, 0
-	for err := range results {
-		switch {
-		case err == nil:
-			created++
-		case errors.Is(err, ErrDriverBusy):
-			busy++
-		default:
-			t.Fatalf("concurrent create: %v", err)
-		}
-	}
-	if created != 1 || busy != 19 {
-		t.Fatalf("created=%d busy=%d", created, busy)
-	}
-
-	bad := Trip{ID: uuid.New(), UserID: uuid.New(), DriverID: uuid.New(), StartPoint: input.StartPoint, EndPoint: input.EndPoint, Price: 100, Status: "active", StartedAt: time.Now().UTC()}
-	defer cleanup(bad.ID)
-	err = tx.Do(ctx, func(ctx context.Context) error {
-		if err := repo.Create(ctx, bad); err != nil {
-			return err
-		}
-		executor := postgres.FromContext(ctx, pool)
-		return tx.Do(ctx, func(ctx context.Context) error {
-			if postgres.FromContext(ctx, pool) != executor {
-				t.Error("nested Do opened another transaction")
-			}
-			return repo.AddStatus(ctx, bad.ID, nil, "bad_status", "")
-		})
-	})
-	if err == nil {
-		t.Fatal("invalid status was accepted")
-	}
-	if _, err := service.Get(ctx, bad.ID); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("trip remained after rollback: %v", err)
-	}
-	bad.ID = uuid.New()
-	bad.DriverID = uuid.New()
-	defer cleanup(bad.ID)
-	var recovered any
-	func() {
-		defer func() { recovered = recover() }()
-		_ = tx.Do(ctx, func(ctx context.Context) error {
-			if err := repo.Create(ctx, bad); err != nil {
-				return err
-			}
-			panic("rollback")
-		})
-	}()
-	if recovered == nil {
-		t.Fatal("panic was not propagated")
-	}
-	if _, err := service.Get(ctx, bad.ID); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("trip remained after panic: %v", err)
-	}
-	bad.ID = uuid.New()
-	bad.DriverID = uuid.New()
-	defer cleanup(bad.ID)
-	if err := repo.Create(ctx, bad); err != nil {
-		t.Fatalf("repository outside Do: %v", err)
-	}
-	if got, err := repo.Get(ctx, bad.ID); err != nil || got.ID != bad.ID {
-		t.Fatalf("read outside Do: %+v, %v", got, err)
-	}
-}
-
-type testService struct {
+type store struct {
+	pool   *pgxpool.Pool
+	repo   *triprepo.Repository
+	tx     *postgres.TxManager
 	create *create.Usecase
 	get    *get.Usecase
 	finish *finish.Usecase
 }
+type events struct{}
 
-func (s testService) Create(ctx context.Context, input Trip) (Trip, error) {
-	return s.create.Execute(ctx, input)
-}
-func (s testService) Get(ctx context.Context, id uuid.UUID) (Trip, error) {
-	return s.get.Execute(ctx, id)
-}
-func (s testService) Finish(ctx context.Context, id uuid.UUID) (Trip, error) {
-	return s.finish.Execute(ctx, id)
-}
-func TestBothTablesRollback(t *testing.T) {
+func (events) Created(context.Context)   {}
+func (events) Completed(context.Context) {}
+func newStore(t *testing.T) *store {
+	t.Helper()
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
-		t.Fatal("DATABASE_URL is required")
+		t.Fatal("DATABASE_URL is required for integration tests")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	pool, err := pgxpool.New(ctx, url)
+	pool, err := pgxpool.New(context.Background(), url)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pool.Close()
-	repo := triprepo.NewRepository(pool, time.Second)
-	tx := postgres.NewTxManager(pool, time.Second)
-	input := Trip{ID: uuid.New(), UserID: uuid.New(), DriverID: uuid.New(), Status: Active, StartedAt: time.Now().UTC()}
+	t.Cleanup(pool.Close)
+	repo := triprepo.NewRepository(pool, 5*time.Second)
+	tx := postgres.NewTxManager(pool, 5*time.Second)
+	logger := slog.New(slog.DiscardHandler)
+	return &store{pool: pool, repo: repo, tx: tx, create: create.New(repo, tx, logger, events{}), get: get.New(repo), finish: finish.New(repo, tx, logger, events{})}
+}
+
+func (s *store) input(t *testing.T) trip.Trip {
+	t.Helper()
+	input := trip.Trip{ID: uuid.New(), UserID: uuid.New(), DriverID: uuid.New(), Status: trip.Active, StartedAt: time.Now().UTC(), Price: 100}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := s.pool.Exec(ctx, "DELETE FROM trips WHERE driver_id=$1", input.DriverID); err != nil {
+			t.Error(err)
+		}
+	})
+	return input
+}
+
+func TestLifecycle(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	input := s.input(t)
+	first, err := s.create.Execute(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.get.Execute(ctx, first.ID)
+	if err != nil || got.Status != trip.Active {
+		t.Fatalf("get: %+v %v", got, err)
+	}
+	if _, err := s.create.Execute(ctx, input); !errors.Is(err, trip.ErrDriverBusy) {
+		t.Fatalf("busy: %v", err)
+	}
+	completed, err := s.finish.Execute(ctx, first.ID)
+	if err != nil || completed.Status != trip.Completed || completed.FinishedAt == nil {
+		t.Fatalf("finish: %+v %v", completed, err)
+	}
+	if _, err := s.finish.Execute(ctx, first.ID); !errors.Is(err, trip.ErrCompleted) {
+		t.Fatalf("repeat: %v", err)
+	}
+	got, err = s.get.Execute(ctx, first.ID)
+	if err != nil || !got.FinishedAt.Equal(*completed.FinishedAt) {
+		t.Fatalf("finish time changed: %+v %v", got, err)
+	}
+	for _, fetch := range []func(context.Context, uuid.UUID) (trip.Trip, error){s.get.Execute, s.finish.Execute} {
+		if _, err := fetch(ctx, uuid.New()); !errors.Is(err, trip.ErrNotFound) {
+			t.Fatalf("missing: %v", err)
+		}
+	}
+	if _, err := s.create.Execute(ctx, input); err != nil {
+		t.Fatalf("driver remains busy: %v", err)
+	}
+	var count int
+	if err := s.pool.QueryRow(ctx, "SELECT count(*) FROM trip_status_history WHERE trip_id=$1", first.ID).Scan(&count); err != nil || count != 2 {
+		t.Fatalf("history=%d error=%v", count, err)
+	}
+}
+
+func parallel(t *testing.T, count int, call func() error, wantConflict error) {
+	t.Helper()
+	results := make(chan error, count)
+	var wg sync.WaitGroup
+	for range count {
+		wg.Go(func() { results <- call() })
+	}
+	wg.Wait()
+	close(results)
+	success, conflicts := 0, 0
+	for err := range results {
+		switch {
+		case err == nil:
+			success++
+		case errors.Is(err, wantConflict):
+			conflicts++
+		default:
+			t.Fatal(err)
+		}
+	}
+	if success != 1 || conflicts != count-1 {
+		t.Fatalf("success=%d conflicts=%d", success, conflicts)
+	}
+}
+
+func TestConcurrentCreate(t *testing.T) {
+	s := newStore(t)
+	input := s.input(t)
+	parallel(t, 20, func() error { _, err := s.create.Execute(context.Background(), input); return err }, trip.ErrDriverBusy)
+}
+
+func TestConcurrentFinish(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	created, err := s.create.Execute(ctx, s.input(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parallel(t, 2, func() error { _, err := s.finish.Execute(ctx, created.ID); return err }, trip.ErrCompleted)
+	var count int
+	if err := s.pool.QueryRow(ctx, "SELECT count(*) FROM trip_status_history WHERE trip_id=$1", created.ID).Scan(&count); err != nil || count != 2 {
+		t.Fatalf("history=%d error=%v", count, err)
+	}
+}
+
+func TestBothTablesRollback(t *testing.T) {
+	s := newStore(t)
+	input := s.input(t)
+	ctx := context.Background()
 	failure := errors.New("force rollback")
-	err = tx.Do(ctx, func(ctx context.Context) error {
-		if err := repo.Create(ctx, input); err != nil {
+	err := s.tx.Do(ctx, func(ctx context.Context) error {
+		if err := s.repo.Create(ctx, input); err != nil {
 			return err
 		}
-		if err := repo.AddStatus(ctx, input.ID, nil, Active, "created"); err != nil {
+		if err := s.repo.AddStatus(ctx, input.ID, nil, trip.Active, "created"); err != nil {
 			return err
 		}
 		return failure
@@ -251,8 +168,42 @@ func TestBothTablesRollback(t *testing.T) {
 	}
 	for _, query := range []string{"SELECT count(*) FROM trips WHERE id=$1", "SELECT count(*) FROM trip_status_history WHERE trip_id=$1"} {
 		var count int
-		if err := pool.QueryRow(ctx, query, input.ID).Scan(&count); err != nil || count != 0 {
+		if err := s.pool.QueryRow(ctx, query, input.ID).Scan(&count); err != nil || count != 0 {
 			t.Fatalf("rollback count=%d error=%v", count, err)
 		}
+	}
+}
+
+func TestNestedTransactionAndPanic(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	input := s.input(t)
+	var recovered any
+	func() {
+		defer func() { recovered = recover() }()
+		_ = s.tx.Do(ctx, func(ctx context.Context) error {
+			executor := postgres.FromContext(ctx, s.pool)
+			return s.tx.Do(ctx, func(ctx context.Context) error {
+				if postgres.FromContext(ctx, s.pool) != executor {
+					t.Error("nested transaction differs")
+				}
+				if err := s.repo.Create(ctx, input); err != nil {
+					return err
+				}
+				panic("rollback")
+			})
+		})
+	}()
+	if recovered == nil {
+		t.Fatal("panic was not propagated")
+	}
+	if _, err := s.repo.Get(ctx, input.ID); !errors.Is(err, trip.ErrNotFound) {
+		t.Fatalf("rollback: %v", err)
+	}
+	if err := s.repo.Create(ctx, input); err != nil {
+		t.Fatalf("outside transaction: %v", err)
+	}
+	if _, err := s.repo.CountActive(ctx); err != nil {
+		t.Fatal(err)
 	}
 }

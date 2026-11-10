@@ -3,10 +3,11 @@ package domainerror_test
 import (
 	"errors"
 	"fmt"
-	"github.com/Arbuz-ignor/template/internal/domain/trip"
-	"github.com/Arbuz-ignor/template/internal/http/domainerror"
 	"strings"
 	"testing"
+
+	"github.com/Arbuz-ignor/template/internal/domain/trip"
+	"github.com/Arbuz-ignor/template/internal/http/domainerror"
 )
 
 func TestProblem(t *testing.T) {

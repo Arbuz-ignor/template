@@ -3,11 +3,14 @@ package finish_test
 import (
 	"context"
 	"errors"
-	"github.com/Arbuz-ignor/template/internal/domain/trip"
-	"github.com/Arbuz-ignor/template/internal/usecase/trip/finish"
+	"log/slog"
+	"testing"
+
 	"github.com/google/uuid"
 	"go.uber.org/mock/gomock"
-	"testing"
+
+	"github.com/Arbuz-ignor/template/internal/domain/trip"
+	"github.com/Arbuz-ignor/template/internal/usecase/trip/finish"
 )
 
 func TestExecute(t *testing.T) {
@@ -36,7 +39,7 @@ func TestExecute(t *testing.T) {
 					repo.EXPECT().AddStatus(gomock.Any(), id, gomock.Any(), trip.Completed, "trip finished").Return(tc.historyErr)
 				}
 			}
-			got, err := finish.New(repo, tx).Execute(context.Background(), id)
+			got, err := finish.New(repo, tx, testLogger(), testEvents(ctrl)).Execute(context.Background(), id)
 			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("error: %v", err)
 			}
@@ -45,4 +48,12 @@ func TestExecute(t *testing.T) {
 			}
 		})
 	}
+}
+
+func testLogger() *slog.Logger { return slog.New(slog.DiscardHandler) }
+
+func testEvents(ctrl *gomock.Controller) *MockeventRecorder {
+	events := NewMockeventRecorder(ctrl)
+	events.EXPECT().Completed(gomock.Any()).AnyTimes()
+	return events
 }

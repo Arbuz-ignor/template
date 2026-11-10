@@ -1,12 +1,14 @@
 package domainerror
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
-	"github.com/Arbuz-ignor/template/internal/domain/trip"
-	api "github.com/Arbuz-ignor/template/internal/generated"
 	"net/http"
 	"strings"
+
+	"github.com/Arbuz-ignor/template/internal/domain/trip"
+	api "github.com/Arbuz-ignor/template/internal/generated"
 )
 
 func Problem(err error) (int, api.Problem) {
@@ -24,8 +26,20 @@ func Problem(err error) (int, api.Problem) {
 	}
 	return status, api.Problem{Type: "https://tripgo.example/problems/" + strings.ReplaceAll(code, "_", "-"), Title: title, Status: int32(status), Code: code, Detail: &detail}
 }
+
+type errorSinkKey struct{}
+
+func WithErrorSink(ctx context.Context, sink func(error)) context.Context {
+	return context.WithValue(ctx, errorSinkKey{}, sink)
+}
+
 func Write(w http.ResponseWriter, r *http.Request, err error) {
 	status, body := Problem(err)
+	if status >= 500 {
+		if sink, ok := r.Context().Value(errorSinkKey{}).(func(error)); ok {
+			sink(err)
+		}
+	}
 	instance := r.URL.Path
 	body.Instance = &instance
 	w.Header().Set("Content-Type", "application/problem+json")

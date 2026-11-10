@@ -4,15 +4,18 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Arbuz-ignor/template/internal/config"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Arbuz-ignor/template/internal/config"
 )
 
-func Open(ctx context.Context, c config.Config) (*pgxpool.Pool, error) {
+func Open(ctx context.Context, c config.Config, tracer pgx.QueryTracer) (*pgxpool.Pool, error) {
 	p, err := pgxpool.ParseConfig(c.DatabaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse DATABASE_URL: %w", err)
 	}
+	p.ConnConfig.Tracer = tracer
 	p.MaxConns = c.DatabaseMaxConns
 	p.MinConns = c.DatabaseMinConns
 	p.MaxConnLifetime = c.DatabaseMaxLifetime

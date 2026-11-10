@@ -4,15 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	domain "github.com/Arbuz-ignor/template/internal/domain/trip"
 	"time"
 
-	"github.com/Arbuz-ignor/template/internal/infra/postgres"
 	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	domain "github.com/Arbuz-ignor/template/internal/domain/trip"
+	"github.com/Arbuz-ignor/template/internal/infra/postgres"
 )
 
 var sql = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
@@ -122,4 +123,14 @@ func scanTrip(row pgx.Row) (domain.Trip, error) {
 		&result.EndPoint.Latitude, &result.EndPoint.Longitude,
 		&result.Price, &result.Status, &result.StartedAt, &result.FinishedAt)
 	return result, err
+}
+
+func (r *Repository) CountActive(ctx context.Context) (int64, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	var count int64
+	if err := r.pool.QueryRow(queryCtx, "SELECT count(*) FROM trips WHERE status = $1", domain.Active).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count active trips: %w", err)
+	}
+	return count, nil
 }

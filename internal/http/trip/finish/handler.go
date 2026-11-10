@@ -1,10 +1,12 @@
 package finish
 
 import (
+	"net/http"
+
+	"github.com/google/uuid"
+
 	"github.com/Arbuz-ignor/template/internal/http/domainerror"
 	"github.com/Arbuz-ignor/template/internal/http/response"
-	"github.com/google/uuid"
-	"net/http"
 )
 
 type Handler struct{ usecase usecase }

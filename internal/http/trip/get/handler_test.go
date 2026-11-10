@@ -1,12 +1,14 @@
 package get_test
 
 import (
-	"github.com/Arbuz-ignor/template/internal/domain/trip"
-	"github.com/Arbuz-ignor/template/internal/http/trip/get"
-	"github.com/google/uuid"
-	"go.uber.org/mock/gomock"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/google/uuid"
+	"go.uber.org/mock/gomock"
+
+	"github.com/Arbuz-ignor/template/internal/domain/trip"
+	"github.com/Arbuz-ignor/template/internal/http/trip/get"
 )
 
 func TestHandle(t *testing.T) {

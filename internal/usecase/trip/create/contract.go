@@ -4,8 +4,10 @@ package create
 
 import (
 	"context"
-	"github.com/Arbuz-ignor/template/internal/domain/trip"
+
 	"github.com/google/uuid"
+
+	"github.com/Arbuz-ignor/template/internal/domain/trip"
 )
 
 type tripRepository interface {
@@ -15,3 +17,5 @@ type tripRepository interface {
 type txManager interface {
 	Do(context.Context, func(context.Context) error) error
 }
+
+type eventRecorder interface{ Created(context.Context) }

@@ -3,14 +3,16 @@ package create_test
 import (
 	"encoding/json"
 	"errors"
-	"github.com/Arbuz-ignor/template/internal/domain/trip"
-	"github.com/Arbuz-ignor/template/internal/http/trip/create"
-	"github.com/google/uuid"
-	"go.uber.org/mock/gomock"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
+	"go.uber.org/mock/gomock"
+
+	"github.com/Arbuz-ignor/template/internal/domain/trip"
+	"github.com/Arbuz-ignor/template/internal/http/trip/create"
 )
 
 const validTrip = `{"user_id":"5cb72c04-7650-45c9-a79b-bcdba0631e0c","driver_id":"8860b315-ec86-42eb-a17c-7c163d721ff5","start_point":{"latitude":59.9398,"longitude":30.3146},"end_point":{"latitude":59.929,"longitude":30.3626},"price":1450}`
@@ -39,6 +41,7 @@ func TestHandle(t *testing.T) {
 		})
 	}
 }
+
 func TestInvalidBody(t *testing.T) {
 	for _, body := range []string{"{", "null", validTrip + "{}", strings.Replace(validTrip, `"price":1450`, `"price":null`, 1), strings.Replace(validTrip, `"price":1450`, `"price":-1`, 1), strings.Replace(validTrip, `"price":1450`, `"extra":true`, 1), strings.Replace(validTrip, `"latitude":59.9398`, `"latitude":91`, 1), strings.Replace(validTrip, `"latitude":59.9398,`, "", 1), strings.Replace(validTrip, `"latitude":59.9398`, `"latitude":null`, 1), strings.Replace(validTrip, `8860b315-ec86-42eb-a17c-7c163d721ff5`, "invalid", 1)} {
 		ctrl := gomock.NewController(t)
@@ -52,6 +55,7 @@ func TestInvalidBody(t *testing.T) {
 		}
 	}
 }
+
 func TestContentType(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	w := httptest.NewRecorder()

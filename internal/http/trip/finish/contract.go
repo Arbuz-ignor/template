@@ -4,8 +4,10 @@ package finish
 
 import (
 	"context"
-	"github.com/Arbuz-ignor/template/internal/domain/trip"
+
 	"github.com/google/uuid"
+
+	"github.com/Arbuz-ignor/template/internal/domain/trip"
 )
 
 type usecase interface {

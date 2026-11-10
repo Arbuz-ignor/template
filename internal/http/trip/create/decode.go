@@ -3,12 +3,16 @@ package create
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/Arbuz-ignor/template/internal/domain/trip"
-	api "github.com/Arbuz-ignor/template/internal/generated"
-	"github.com/google/uuid"
 	"io"
 	"net/http"
+
+	"github.com/google/uuid"
+
+	"github.com/Arbuz-ignor/template/internal/domain/trip"
+	api "github.com/Arbuz-ignor/template/internal/generated"
 )
+
+const bodyField = "body"
 
 func readTripData(w http.ResponseWriter, r *http.Request) (api.TripData, error) {
 	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
@@ -22,11 +26,11 @@ func readTripData(w http.ResponseWriter, r *http.Request) (api.TripData, error) 
 		return data, err
 	}
 	if decoder.Decode(new(any)) != io.EOF {
-		return data, &trip.ValidationError{Field: "body", Reason: "extra JSON value"}
+		return data, &trip.ValidationError{Field: bodyField, Reason: "extra JSON value"}
 	}
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(raw, &fields) != nil || !hasFields(fields, "user_id", "driver_id", "start_point", "end_point", "price") {
-		return data, &trip.ValidationError{Field: "body", Reason: "missing field"}
+		return data, &trip.ValidationError{Field: bodyField, Reason: "missing field"}
 	}
 	for _, point := range []string{"start_point", "end_point"} {
 		var coords map[string]json.RawMessage
@@ -39,7 +43,7 @@ func readTripData(w http.ResponseWriter, r *http.Request) (api.TripData, error) 
 		data.EndPoint.Latitude < -90 || data.EndPoint.Latitude > 90 ||
 		data.StartPoint.Longitude < -180 || data.StartPoint.Longitude > 180 ||
 		data.EndPoint.Longitude < -180 || data.EndPoint.Longitude > 180 {
-		return data, &trip.ValidationError{Field: "body", Reason: "invalid field"}
+		return data, &trip.ValidationError{Field: bodyField, Reason: "invalid field"}
 	}
 	return data, nil
 }

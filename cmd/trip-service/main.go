@@ -32,6 +32,13 @@ func run() error {
 		return err
 	}
 	defer app.Pool.Close()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.ShutdownTimeout)
+		defer cancel()
+		if err := app.Telemetry.Shutdown(ctx); err != nil {
+			app.Logger.Warn("telemetry shutdown failed", "error", err)
+		}
+	}()
 	server, logger := app.Server, app.Logger
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- server.ListenAndServe() }()

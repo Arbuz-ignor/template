@@ -2,11 +2,13 @@ package trip_test
 
 import (
 	"errors"
-	"github.com/Arbuz-ignor/template/internal/domain/trip"
-	"github.com/google/uuid"
 	"math"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/Arbuz-ignor/template/internal/domain/trip"
 )
 
 func TestValidate(t *testing.T) {
@@ -44,6 +46,7 @@ func TestValidate(t *testing.T) {
 		})
 	}
 }
+
 func TestFinish(t *testing.T) {
 	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	v := trip.Trip{Status: trip.Active}
