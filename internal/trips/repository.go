@@ -80,27 +80,41 @@ func (r *Repository) Get(ctx context.Context, id uuid.UUID) (Trip, error) {
 	return trip, nil
 }
 
-func (r *Repository) Finish(ctx context.Context, id uuid.UUID, at time.Time) (Trip, error) {
-	query, args, err := sql.Update("trips").Set("status", "completed").Set("finished_at", at).Set("updated_at", at).
-		Where(sq.Eq{"id": id, "status": "active"}).Suffix("RETURNING " + columns).ToSql()
+func (r *Repository) GetForUpdate(ctx context.Context, id uuid.UUID) (Trip, error) {
+	query, args, err := sql.Select(columns).From("trips").Where(sq.Eq{"id": id}).Suffix("FOR UPDATE").ToSql()
 	if err != nil {
-		return Trip{}, fmt.Errorf("build trip update: %w", err)
+		return Trip{}, fmt.Errorf("build locked trip select: %w", err)
 	}
 	queryCtx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	trip, err := scanTrip(database.FromContext(ctx, r.pool).QueryRow(queryCtx, query, args...))
+	result, err := scanTrip(database.FromContext(ctx, r.pool).QueryRow(queryCtx, query, args...))
 	if errors.Is(err, pgx.ErrNoRows) {
-		_, getErr := r.Get(ctx, id)
-		if getErr == nil {
-			return Trip{}, ErrCompleted
-		}
-		return Trip{}, getErr
+		return Trip{}, ErrNotFound
 	}
 	if err != nil {
-		return Trip{}, fmt.Errorf("finish trip: %w", err)
+		return Trip{}, fmt.Errorf("lock trip: %w", err)
 	}
-	return trip, nil
+	return result, nil
 }
+
+func (r *Repository) SaveCompleted(ctx context.Context, result Trip) error {
+	query, args, err := sql.Update("trips").Set("status", result.Status).Set("finished_at", result.FinishedAt).Set("updated_at", result.FinishedAt).Where(sq.Eq{"id": result.ID, "status": ActiveStatus}).ToSql()
+	if err != nil {
+		return fmt.Errorf("build completed trip update: %w", err)
+	}
+	queryCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tag, err := database.FromContext(ctx, r.pool).Exec(queryCtx, query, args...)
+	if err != nil {
+		return fmt.Errorf("save completed trip: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrCompleted
+	}
+	return nil
+}
+
+const ActiveStatus = "active"
 
 func scanTrip(row pgx.Row) (Trip, error) {
 	var trip Trip
