@@ -10,9 +10,7 @@ import (
 	"syscall"
 
 	"github.com/Arbuz-ignor/template/internal/config"
-	"github.com/Arbuz-ignor/template/internal/database"
-	"github.com/Arbuz-ignor/template/internal/httpserver"
-	"github.com/Arbuz-ignor/template/internal/trips"
+	"github.com/Arbuz-ignor/template/internal/container"
 )
 
 func main() {
@@ -27,28 +25,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})).With("service", "trip-service")
-	slog.SetDefault(logger)
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	pool, err := database.Open(ctx, cfg)
+	app, err := container.New(ctx, cfg)
 	if err != nil {
 		return err
 	}
-	defer pool.Close()
-	repo := trips.NewRepository(pool, cfg.DatabaseQueryTime)
-	txManager := database.NewTxManager(pool, cfg.DatabaseQueryTime)
-	service := trips.NewService(repo, txManager)
-
-	server := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           httpserver.Router(pool, service, cfg.DatabaseQueryTime),
-		ReadTimeout:       cfg.HTTPReadTimeout,
-		ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout,
-		WriteTimeout:      cfg.HTTPWriteTimeout,
-		IdleTimeout:       cfg.HTTPIdleTimeout,
-	}
+	defer app.Pool.Close()
+	server, logger := app.Server, app.Logger
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- server.ListenAndServe() }()
 	logger.Info("HTTP server starting", "address", cfg.HTTPAddr)

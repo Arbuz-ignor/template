@@ -1,4 +1,6 @@
-package trips
+//go:build integration
+
+package triprepo_test
 
 import (
 	"context"
@@ -8,7 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Arbuz-ignor/template/internal/database"
+	. "github.com/Arbuz-ignor/template/internal/domain/trip"
+	"github.com/Arbuz-ignor/template/internal/infra/postgres"
+	triprepo "github.com/Arbuz-ignor/template/internal/repository/trip"
+	"github.com/Arbuz-ignor/template/internal/usecase/trip/create"
+	"github.com/Arbuz-ignor/template/internal/usecase/trip/finish"
+	"github.com/Arbuz-ignor/template/internal/usecase/trip/get"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -16,7 +23,7 @@ import (
 func TestDatabaseLifecycle(t *testing.T) {
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
-		t.Skip("DATABASE_URL is not set")
+		t.Fatal("DATABASE_URL is required for integration tests")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -28,9 +35,9 @@ func TestDatabaseLifecycle(t *testing.T) {
 	if err := pool.Ping(ctx); err != nil {
 		t.Fatal(err)
 	}
-	repo := NewRepository(pool, 5*time.Second)
-	tx := database.NewTxManager(pool, 5*time.Second)
-	service := NewService(repo, tx)
+	repo := triprepo.NewRepository(pool, 5*time.Second)
+	tx := postgres.NewTxManager(pool, 5*time.Second)
+	service := testService{create.New(repo, tx), get.New(repo), finish.New(repo, tx)}
 	input := Trip{
 		UserID: uuid.New(), DriverID: uuid.New(),
 		StartPoint: Coordinates{Latitude: 59.9398, Longitude: 30.3146},
@@ -155,9 +162,9 @@ func TestDatabaseLifecycle(t *testing.T) {
 		if err := repo.Create(ctx, bad); err != nil {
 			return err
 		}
-		executor := database.FromContext(ctx, pool)
+		executor := postgres.FromContext(ctx, pool)
 		return tx.Do(ctx, func(ctx context.Context) error {
-			if database.FromContext(ctx, pool) != executor {
+			if postgres.FromContext(ctx, pool) != executor {
 				t.Error("nested Do opened another transaction")
 			}
 			return repo.AddStatus(ctx, bad.ID, nil, "bad_status", "")
@@ -196,5 +203,56 @@ func TestDatabaseLifecycle(t *testing.T) {
 	}
 	if got, err := repo.Get(ctx, bad.ID); err != nil || got.ID != bad.ID {
 		t.Fatalf("read outside Do: %+v, %v", got, err)
+	}
+}
+
+type testService struct {
+	create *create.Usecase
+	get    *get.Usecase
+	finish *finish.Usecase
+}
+
+func (s testService) Create(ctx context.Context, input Trip) (Trip, error) {
+	return s.create.Execute(ctx, input)
+}
+func (s testService) Get(ctx context.Context, id uuid.UUID) (Trip, error) {
+	return s.get.Execute(ctx, id)
+}
+func (s testService) Finish(ctx context.Context, id uuid.UUID) (Trip, error) {
+	return s.finish.Execute(ctx, id)
+}
+func TestBothTablesRollback(t *testing.T) {
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		t.Fatal("DATABASE_URL is required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	repo := triprepo.NewRepository(pool, time.Second)
+	tx := postgres.NewTxManager(pool, time.Second)
+	input := Trip{ID: uuid.New(), UserID: uuid.New(), DriverID: uuid.New(), Status: Active, StartedAt: time.Now().UTC()}
+	failure := errors.New("force rollback")
+	err = tx.Do(ctx, func(ctx context.Context) error {
+		if err := repo.Create(ctx, input); err != nil {
+			return err
+		}
+		if err := repo.AddStatus(ctx, input.ID, nil, Active, "created"); err != nil {
+			return err
+		}
+		return failure
+	})
+	if !errors.Is(err, failure) {
+		t.Fatal(err)
+	}
+	for _, query := range []string{"SELECT count(*) FROM trips WHERE id=$1", "SELECT count(*) FROM trip_status_history WHERE trip_id=$1"} {
+		var count int
+		if err := pool.QueryRow(ctx, query, input.ID).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("rollback count=%d error=%v", count, err)
+		}
 	}
 }

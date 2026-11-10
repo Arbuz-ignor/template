@@ -25,7 +25,6 @@ type Config struct {
 	DatabaseQueryTime     time.Duration
 }
 
-
 func Load() (Config, error) {
 	return load(os.Getenv)
 }
