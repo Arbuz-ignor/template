@@ -70,7 +70,28 @@ func New(ctx context.Context, cfg config.Config) (*App, error) {
 		return nil, err
 	}
 	tx := postgres.NewTxManager(pool, cfg.DatabaseQueryTime)
-	handlers := httpserver.Handlers{Create: createhandler.New(create.New(repo, tx, logger, business)).Handle, Get: gethandler.New(get.New(repo)).Handle, Finish: finishhandler.New(finish.New(repo, tx, logger, business)).Handle}
-	server := &http.Server{Addr: cfg.HTTPAddr, Handler: httpserver.Router(pool, handlers, cfg.DatabaseQueryTime, middlewares.Recover, middlewares.Tracing, middlewares.Logging, middlewares.Metrics), ReadTimeout: cfg.HTTPReadTimeout, ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout, WriteTimeout: cfg.HTTPWriteTimeout, IdleTimeout: cfg.HTTPIdleTimeout}
+	createTrip := create.New(repo, tx, logger, business)
+	getTrip := get.New(repo)
+	finishTrip := finish.New(repo, tx, logger, business)
+	handlers := httpserver.Handlers{
+		Create: createhandler.New(createTrip).Handle,
+		Get:    gethandler.New(getTrip).Handle,
+		Finish: finishhandler.New(finishTrip).Handle,
+	}
+	router := httpserver.Router(
+		pool, handlers, cfg.DatabaseQueryTime,
+		middlewares.Recover,
+		middlewares.Tracing,
+		middlewares.Logging,
+		middlewares.Metrics,
+	)
+	server := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           router,
+		ReadTimeout:       cfg.HTTPReadTimeout,
+		ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout,
+		WriteTimeout:      cfg.HTTPWriteTimeout,
+		IdleTimeout:       cfg.HTTPIdleTimeout,
+	}
 	return &App{Server: server, Pool: pool, Logger: logger, Telemetry: signals}, nil
 }

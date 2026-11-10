@@ -13,11 +13,9 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/trace"
 )
 
 type Telemetry struct {
@@ -27,6 +25,9 @@ type Telemetry struct {
 }
 
 func New(ctx context.Context, level slog.Level) (*Telemetry, error) {
+	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") == "" {
+		return nil, fmt.Errorf("OTEL_EXPORTER_OTLP_ENDPOINT is required")
+	}
 	res, err := resource.New(ctx, resource.WithFromEnv(), resource.WithAttributes(attribute.String("service.name", envDefault("OTEL_SERVICE_NAME", "trip-service")), attribute.String("service.version", envDefault("SERVICE_VERSION", "local")), attribute.String("service.namespace", "tripgo"), attribute.String("deployment.environment", "local")))
 	if err != nil {
 		return nil, fmt.Errorf("telemetry resource: %w", err)
@@ -107,48 +108,3 @@ func envDefault(name, fallback string) string {
 	}
 	return fallback
 }
-
-type traceHandler struct{ next slog.Handler }
-
-func (h *traceHandler) Enabled(ctx context.Context, level slog.Level) bool {
-	return h.next.Enabled(ctx, level)
-}
-
-func (h *traceHandler) Handle(ctx context.Context, record slog.Record) error {
-	span := trace.SpanContextFromContext(ctx)
-	traceID, spanID := "", ""
-	if span.IsValid() {
-		traceID = span.TraceID().String()
-		spanID = span.SpanID().String()
-	}
-	record.AddAttrs(slog.String("trace_id", traceID), slog.String("span_id", spanID))
-	return h.next.Handle(ctx, record)
-}
-
-func (h *traceHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &traceHandler{next: h.next.WithAttrs(attrs)}
-}
-
-func (h *traceHandler) WithGroup(name string) slog.Handler {
-	return &traceHandler{next: h.next.WithGroup(name)}
-}
-func NewLogger(handler slog.Handler) *slog.Logger { return slog.New(&traceHandler{next: handler}) }
-
-type Business struct {
-	created   metric.Int64Counter
-	completed metric.Int64Counter
-}
-
-func NewBusiness(meter metric.Meter) (*Business, error) {
-	created, err := meter.Int64Counter("tripgo.trips.created")
-	if err != nil {
-		return nil, err
-	}
-	completed, err := meter.Int64Counter("tripgo.trips.completed")
-	if err != nil {
-		return nil, err
-	}
-	return &Business{created: created, completed: completed}, nil
-}
-func (b *Business) Created(ctx context.Context)   { b.created.Add(ctx, 1) }
-func (b *Business) Completed(ctx context.Context) { b.completed.Add(ctx, 1) }

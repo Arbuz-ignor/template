@@ -14,7 +14,6 @@ import (
 )
 
 type (
-	Pinger   interface{ Ping(context.Context) error }
 	Handlers struct {
 		Create func(http.ResponseWriter, *http.Request)
 		Get    func(http.ResponseWriter, *http.Request, api.TripId)
@@ -23,12 +22,12 @@ type (
 )
 
 type server struct {
-	db       Pinger
+	db       pinger
 	handlers Handlers
 	timeout  time.Duration
 }
 
-func Router(db Pinger, handlers Handlers, timeout time.Duration, middlewares ...func(http.Handler) http.Handler) http.Handler {
+func Router(db pinger, handlers Handlers, timeout time.Duration, middlewares ...func(http.Handler) http.Handler) http.Handler {
 	s := &server{db: db, handlers: handlers, timeout: timeout}
 	r := chi.NewRouter()
 	r.Use(middlewares...)
