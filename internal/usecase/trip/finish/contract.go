@@ -1,0 +1,22 @@
+//go:generate go tool mockgen -source=contract.go -destination=mocks_test.go -package=finish_test
+
+package finish
+
+import (
+	"context"
+
+	"github.com/google/uuid"
+
+	"github.com/Arbuz-ignor/template/internal/domain/trip"
+)
+
+type tripRepository interface {
+	GetForUpdate(context.Context, uuid.UUID) (trip.Trip, error)
+	SaveCompleted(context.Context, trip.Trip) error
+	AddStatus(context.Context, uuid.UUID, *string, string, string) error
+}
+type txManager interface {
+	Do(context.Context, func(context.Context) error) error
+}
+
+type eventRecorder interface{ Completed(context.Context) }
